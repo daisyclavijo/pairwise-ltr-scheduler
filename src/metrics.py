@@ -55,6 +55,12 @@ def summarize(policy: str, rows: list[RequestMetrics], total_time: float) -> Run
     )
 
 
+def mean_absolute_error(true_lengths: list[float], pred_lengths: list[float]) -> float:
+    if not true_lengths:
+        return 0.0
+    return sum(abs(t - p) for t, p in zip(true_lengths, pred_lengths)) / len(true_lengths)
+
+
 def kendall_tau(predicted_order: list[int], true_order: list[int]) -> float:
     """
     Ranking quality metric from the LTR papers.

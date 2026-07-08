@@ -1,114 +1,53 @@
-# Pairwise LTR Scheduler for LLM Serving
+# ProD-M + PARS — Llama 3.3 8B + 2025–2026 benchmark datasets
 
-Implementation of our proposed **Pairwise Learning-to-Rank scheduler** for reducing LLM inference latency. Based on:
+## Recommended upgrades (now in `configs/default.yaml`)
 
-- *An Empirical Study on Latency Reduction Techniques for Large Language Models*
-- *PARS: Low-Latency LLM Serving via Pairwise Learning-to-Rank*
-- *Efficient LLM Scheduling by Learning to Rank*
+### LLM profiles (`llm.profile`)
 
-## What this does
+| Profile | Model | Best for |
+|---------|-------|----------|
+| **`llama33`** (default) | `meta-llama/Llama-3.3-8B-Instruct` | Direct upgrade from PPT's Llama 3.1; same 8B VRAM footprint |
+| `llama31` | `Meta-Llama-3.1-8B-Instruct` | Original midterm baseline |
+| `qwen25` | `Qwen/Qwen2.5-7B-Instruct` | ProD paper served model; strong length variance |
+| `deepseek_r1` | `DeepSeek-R1-Distill-Llama-8B` | **PARS paper focus** — reasoning traces, huge length spread |
 
-```
-Incoming Requests
-       ↓
-Pairwise Ranking Predictor  (BERT + margin ranking loss)
-       ↓
-Priority Prompt Boost     (high / normal / low)
-       ↓
-LTR Scheduler             (shortest-job-first approximation)
-       ↓
-Inference Engine          (simulator locally, vLLM on cloud GPU)
+Switch profile:
+```bash
+python scripts/generate_prod_labels.py --llm-profile deepseek_r1 --device cuda
 ```
 
-We compare three policies:
+### Datasets (`datasets.name=all`)
 
-| Policy | Description |
-|--------|-------------|
-| `fcfs` | First-come-first-serve baseline |
-| `ltr_pointwise` | Sort by predicted absolute length |
-| `pairwise_ltr` | **Our proposal** — pairwise ranking + priority prompts |
+| Dataset | Replaces | Why better |
+|---------|----------|------------|
+| **GSM8K** | — | Short math baseline (kept) |
+| **MATH** | — | Competition math; longer reasoning chains |
+| **LiveCodeBench** | MBPP | Rolling LeetCode/AtCoder; contamination-resistant (2025 standard) |
+| **WildChat-1M** | LMSYS | Real open chat logs; no gating |
+| **LongBench v2** | LongBench v1 | 503 tasks, 8k–2M context; 2025 long-context benchmark |
 
-## Quick start (local CPU — simulation only)
+## Run
 
 ```bash
+export HF_TOKEN=hf_...
 pip install -r requirements.txt
+python scripts/check_setup.py
 
-# Train the pairwise ranker (CPU works, but slow — use cloud for real training)
-python scripts/train_predictor.py --epochs 1 --train-samples 500
+# Default: Llama 3.3 + all updated datasets
+python scripts/run_pipeline.py --device cuda
 
-# Compare all schedulers
-python scripts/run_simulation.py --compare-all --checkpoint checkpoints/pairwise_ranker.pt
+# Reasoning experiment (PARS paper scenario)
+python scripts/run_pipeline.py --llm-profile deepseek_r1 --device cuda
 ```
 
-## Cloud GPU (recommended)
+## Why these choices fit *this* project
 
-Your local machine does not need a GPU. Run everything on Google Colab, RunPod, or Lambda Labs:
+ProD-M + PARS cares about **output-length variance**, not benchmark accuracy:
+- **LiveCodeBench** + **MATH** → short vs long solutions in same workload
+- **WildChat** → realistic mixed chat lengths
+- **LongBench v2** → long-context prompts stress the scheduler
+- **DeepSeek-R1** → reasoning CoT makes HOL blocking worse (exactly what PARS targets)
 
-```bash
-git clone https://github.com/YOUR_USERNAME/pairwise-ltr-scheduler.git
-cd pairwise-ltr-scheduler
-bash cloud/run_on_cloud.sh
-```
+## Team
 
-Or open `notebooks/cloud_experiment.ipynb` in Google Colab.
-
-### Google Colab steps
-
-1. Upload this repo to Colab (or clone from GitHub)
-2. Set runtime to **GPU** (T4 is enough for BERT training)
-3. Run all cells in `notebooks/cloud_experiment.ipynb`
-
-## Priority prompts
-
-Assign priority when submitting a request:
-
-```python
-from src.priority import InferenceRequest, PriorityLevel
-
-req = InferenceRequest(
-    request_id="user_42",
-    prompt="Summarize this document in 2 sentences.",
-    output_length=50,
-    priority=PriorityLevel.HIGH,   # served before normal/low
-)
-```
-
-Priority boosts are configured in `configs/default.yaml`:
-
-```yaml
-priority:
-  high_boost: -2.0    # lower score = served sooner
-  normal_boost: 0.0
-  low_boost: 2.0
-```
-
-## Project structure
-
-```
-├── configs/default.yaml       # All tunable settings
-├── src/
-│   ├── pairwise_predictor.py  # BERT + margin ranking loss
-│   ├── scheduler.py           # FCFS, LTR, Pairwise LTR
-│   ├── priority.py            # Priority prompt handling
-│   ├── simulator.py           # CPU simulation (no GPU needed)
-│   └── vllm_hook.py           # Optional vLLM integration
-├── scripts/
-│   ├── train_predictor.py     # Train on cloud GPU
-│   └── run_simulation.py      # Evaluate schedulers
-├── cloud/run_on_cloud.sh      # One-command cloud setup
-└── notebooks/cloud_experiment.ipynb
-```
-
-## Evaluation metrics
-
-- Average / P50 / P95 / P99 latency
-- Queue waiting time
-- Throughput (requests/sec)
-- Kendall's Tau (ranking quality)
-
-## References
-
-1. Fu et al., "Efficient LLM Scheduling by Learning to Rank," 2024
-2. Tao et al., "PARS: Low-Latency LLM Serving via Pairwise Learning-to-Rank," 2025
-3. Agrawal et al., "Sarathi-Serve," 2024
-4. Kwon et al., "vLLM," SOSP 2023
+FDU Vancouver Capstone — 2026.

@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from src.data import PromptRecord, stream_requests
 from src.metrics import RequestMetrics, RunSummary, summarize
 from src.pairwise_predictor import PairwiseRanker
+from src.prod_m import ProDMPredictor
 from src.priority import InferenceRequest, PriorityLevel, parse_priority
 from src.scheduler import BaseScheduler, make_scheduler
 
@@ -34,9 +35,11 @@ class SimConfig:
 def records_to_requests(
     records: list[PromptRecord],
     ranker: PairwiseRanker | None = None,
+    prod_m: ProDMPredictor | None = None,
+    hidden_states=None,
     device: str = "cpu",
 ) -> list[InferenceRequest]:
-    """Build scheduler requests and optionally score them."""
+    """Build scheduler requests and score with PARS or ProD-M."""
     requests = []
 
     for rec in records:
@@ -51,10 +54,16 @@ def records_to_requests(
 
     if ranker is not None:
         ranker.to(device)
-        texts = [r.prompt for r in requests]
-        scores = ranker.score_prompts(texts)
+        scores = ranker.score_prompts([r.prompt for r in requests])
         for req, score in zip(requests, scores):
             req.rank_score = score
+
+    if prod_m is not None and hidden_states is not None:
+        prod_m.to(device)
+        lengths = prod_m.predict_lengths(hidden_states.to(device))
+        for req, length in zip(requests, lengths):
+            req.rank_score = float(length)
+            req.predicted_length = int(round(length))
 
     return requests
 
@@ -63,6 +72,8 @@ def run_simulation(
     records: list[PromptRecord],
     config: SimConfig,
     ranker: PairwiseRanker | None = None,
+    prod_m: ProDMPredictor | None = None,
+    hidden_states=None,
     device: str = "cpu",
 ) -> tuple[list[RequestMetrics], RunSummary]:
     """
@@ -78,7 +89,9 @@ def run_simulation(
     )
 
     # Pre-score all prompts once (predictor cost is amortized)
-    all_requests = records_to_requests(records, ranker=ranker, device=device)
+    all_requests = records_to_requests(
+        records, ranker=ranker, prod_m=prod_m, hidden_states=hidden_states, device=device
+    )
     request_map = {r.request_id: r for r in all_requests}
 
     clock = 0.0
@@ -152,6 +165,8 @@ def compare_policies(
     ranker: PairwiseRanker | None,
     policies: list[str],
     config: SimConfig,
+    prod_m: ProDMPredictor | None = None,
+    hidden_states=None,
     device: str = "cpu",
 ) -> list[RunSummary]:
     """Run the same workload under multiple schedulers."""
@@ -164,6 +179,15 @@ def compare_policies(
             seed=config.seed,
             priority_boosts=config.priority_boosts,
         )
-        _, summary = run_simulation(records, cfg, ranker=ranker, device=device)
+        use_pars = policy in ("pairwise_ltr", "prod_m_pars", "pars")
+        use_prod = policy in ("ltr_pointwise", "prod_m")
+        _, summary = run_simulation(
+            records,
+            cfg,
+            ranker=ranker if use_pars else None,
+            prod_m=prod_m if use_prod else None,
+            hidden_states=hidden_states if use_prod else None,
+            device=device,
+        )
         results.append(summary)
     return results

@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
-# One-shot cloud setup: install deps, train ranker, run comparison.
-# Works on Google Colab, RunPod, Lambda Labs, or any Linux GPU box.
+# Real ProD-M + PARS pipeline on cloud GPU with Llama 3.1 8B
+#
+# Prerequisites:
+#   export HF_TOKEN=hf_...   (accept Llama license on HuggingFace first)
+#
+# Datasets: GSM8K + MBPP + LMSYS + LongBench
 
 set -e
 
-echo "=== Pairwise LTR Scheduler — Cloud Setup ==="
+if [ -z "$HF_TOKEN" ] && [ -z "$HUGGING_FACE_HUB_TOKEN" ]; then
+  echo "ERROR: Set HF_TOKEN before running."
+  echo "  export HF_TOKEN=hf_..."
+  exit 1
+fi
 
-# Install dependencies
+echo "=== Real ProD-M + PARS (Llama 3.1 8B) ==="
+
 pip install -q -r requirements.txt
 
-# Train the pairwise predictor (uses GPU if available)
-python scripts/train_predictor.py \
-  --epochs 3 \
-  --batch-size 32 \
-  --train-samples 2000 \
-  --output checkpoints/pairwise_ranker.pt
-
-# Compare all three scheduling policies
-python scripts/run_simulation.py \
-  --compare-all \
-  --checkpoint checkpoints/pairwise_ranker.pt \
-  --num-requests 200
+python scripts/run_pipeline.py \
+  --dataset all \
+  --limit 400 \
+  --device cuda
 
 echo ""
-echo "Done. Check latency numbers above."
-echo "FCFS should have highest P95; pairwise_ltr should be lowest."
+echo "Done. Real median labels from Llama -> ProD-M -> PARS -> scheduler eval."

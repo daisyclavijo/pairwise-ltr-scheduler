@@ -1,11 +1,14 @@
 torch>=2.0.0
-transformers>=4.36.0
+transformers>=4.43.0
 datasets>=2.14.0
+accelerate>=0.27.0
+bitsandbytes>=0.43.0; platform_system != "Darwin"
+huggingface_hub>=0.23.0
 numpy>=1.24.0
-pandas>=2.0.0
 pyyaml>=6.0
 tqdm>=4.65.0
-matplotlib>=3.7.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
 
-# Optional: uncomment on cloud GPU for real vLLM serving
-# vllm>=0.4.0
+# Stretch goal: real vLLM serving integration
+# vllm>=0.6.0

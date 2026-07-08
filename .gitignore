@@ -15,7 +15,8 @@ env/
 
 # Data and models (large files)
 data/raw/
-data/processed/
+data/processed/*.json
+data/processed/*.pt
 checkpoints/
 *.pt
 *.pth

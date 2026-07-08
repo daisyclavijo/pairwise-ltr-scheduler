@@ -1,36 +1,69 @@
-# Pairwise LTR Scheduler — default settings
+# ProD-M + PARS — updated LLM + datasets (2025–2026)
 
 model:
   backbone: bert-base-uncased
   margin: 1.0
-  min_length_diff: 0.2   # filter noisy pairs (PARS paper)
+  min_length_diff: 0.2
+
+llm:
+  # Profiles: llama33 (default) | llama31 | qwen25 | deepseek_r1
+  profile: llama33
+  load_in_4bit: true
+  max_prompt_tokens: 8192      # Llama 3.3 supports 128k; cap for GPU memory
+  profiles:
+    llama33:
+      model: meta-llama/Llama-3.3-8B-Instruct
+      max_new_tokens: 512
+    llama31:
+      model: meta-llama/Meta-Llama-3.1-8B-Instruct
+      max_new_tokens: 512
+    qwen25:
+      model: Qwen/Qwen2.5-7B-Instruct
+      max_new_tokens: 512
+    deepseek_r1:
+      model: deepseek-ai/DeepSeek-R1-Distill-Llama-8B
+      max_new_tokens: 2048     # reasoning traces are much longer
+
+prod_m:
+  num_samples: 5
+  num_bins: 32
+  max_length: 2048             # wider bins for reasoning / long outputs
+  max_new_tokens: 512          # overridden by llm profile when set
+  temperature: 0.7
+  top_p: 0.9
+  epochs: 10
+  batch_size: 16
+  learning_rate: 1.0e-3
+  encode_batch_size: 4
 
 training:
   epochs: 5
-  batch_size: 32
+  batch_size: 16
   learning_rate: 2.0e-5
   max_prompt_length: 512
 
+datasets:
+  name: all
+  limit: 500
+  per_dataset:
+    gsm8k: 80           # short math
+    math: 80            # competition math (longer chains)
+    livecodebench: 100  # coding (variable solution length)
+    wildchat: 120       # real user chat
+    longbench_v2: 120   # long-context MCQ
+  eval_limit: 200
+
 scheduler:
-  policy: pairwise_ltr    # fcfs | ltr_pointwise | pairwise_ltr
+  policy: prod_m_pars
   batch_size: 8
-  starvation_seconds: 120  # boost stuck requests after 2 min
+  starvation_seconds: 120
 
 priority:
-  # User-assigned priority boosts (lower score = served sooner)
-  high_boost: -2.0
+  high_boost: -3.0
   normal_boost: 0.0
-  low_boost: 2.0
+  low_boost: 3.0
 
 simulation:
   num_requests: 200
-  arrival_rate: 5.0       # requests per second
-  avg_output_tokens: 150
+  arrival_rate: 8.0
   seed: 42
-
-cloud:
-  # Small model for Colab / free-tier GPU
-  llm_model: meta-llama/Llama-3.2-1B-Instruct
-  dataset: tatsu-lab/alpaca
-  train_samples: 2000
-  test_samples: 500

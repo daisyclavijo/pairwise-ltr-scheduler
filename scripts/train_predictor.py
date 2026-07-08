@@ -21,7 +21,7 @@ from tqdm import tqdm
 # Allow running from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data import load_alpaca_prompts, make_pairwise_samples
+from src.data import load_prod_labels, make_pairwise_samples, make_single_sample_pairs
 from src.pairwise_predictor import PairwiseRanker, margin_ranking_step, save_model
 
 
@@ -50,8 +50,11 @@ def main():
     parser.add_argument("--train-samples", type=int, default=2000)
     parser.add_argument("--output", default="checkpoints/pairwise_ranker.pt")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--local-data", action="store_true", help="Use bundled sample data")
-    parser.add_argument("--max-pairs", type=int, default=2000, help="Cap training pairs")
+    parser.add_argument("--labels", default="data/processed/prod_labels.json",
+                        help="ProD-M median labels (run generate_prod_labels.py first)")
+    parser.add_argument("--ablation-single-sample", action="store_true",
+                        help="Train on single-sample labels instead of medians")
+    parser.add_argument("--max-pairs", type=int, default=5000)
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -66,12 +69,24 @@ def main():
     backbone = cfg["model"]["backbone"]
 
     print(f"Device: {args.device}")
-    print(f"Loading {args.train_samples} training prompts...")
 
-    records = load_alpaca_prompts(
-        split="train", limit=args.train_samples, use_local=args.local_data
-    )
-    pairs = make_pairwise_samples(records, min_length_diff=min_diff)
+    # Phase 3: PARS pairs from ProD-M median labels
+    if not os.path.exists(args.labels):
+        print(f"ERROR: {args.labels} not found.")
+        print("Run first: python scripts/generate_prod_labels.py --device cuda")
+        sys.exit(1)
+
+    print(f"Loading ProD-M labels from {args.labels}")
+    records = load_prod_labels(args.labels).records
+    if args.train_samples:
+        records = records[: args.train_samples]
+
+    if args.ablation_single_sample:
+        print("Ablation: using single-sample labels (noisy)")
+        pairs = make_single_sample_pairs(records, min_length_diff=min_diff)
+    else:
+        print("Using ProD-M median labels for pairwise pairs")
+        pairs = make_pairwise_samples(records, min_length_diff=min_diff)
     if len(pairs) > args.max_pairs:
         random.shuffle(pairs)
         pairs = pairs[: args.max_pairs]

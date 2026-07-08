@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Compare FCFS vs pointwise LTR vs pairwise LTR on simulated traffic.
+Evaluate schedulers on real ProD-M labels from Llama 3.1 8B.
 
-Example:
-  python scripts/run_simulation.py --policy pairwise_ltr
-  python scripts/run_simulation.py --compare-all --checkpoint checkpoints/pairwise_ranker.pt
+Run after the pipeline:
+  python scripts/run_simulation.py --compare-all --device cuda
 """
 
 from __future__ import annotations
@@ -13,14 +12,21 @@ import argparse
 import os
 import sys
 
+import torch
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data import load_alpaca_prompts
+from src.data import load_prod_labels
 from src.metrics import kendall_tau
 from src.pairwise_predictor import load_model
+from src.prod_m import load_hidden_states, load_prod_m
 from src.simulator import SimConfig, compare_policies, run_simulation
+
+
+def priority_map(cfg: dict) -> dict[str, float]:
+    p = cfg["priority"]
+    return {"high": p["high_boost"], "normal": p["normal_boost"], "low": p["low_boost"]}
 
 
 def print_summary(summary):
@@ -35,23 +41,27 @@ def print_summary(summary):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run scheduling simulation")
+    parser = argparse.ArgumentParser(description="Evaluate on real ProD-M labels")
     parser.add_argument("--config", default="configs/default.yaml")
     parser.add_argument("--policy", default=None)
     parser.add_argument("--compare-all", action="store_true")
-    parser.add_argument("--checkpoint", default=None)
+    parser.add_argument("--checkpoint", default="checkpoints/pairwise_ranker.pt")
+    parser.add_argument("--prod-m", default="checkpoints/prod_m.pt")
+    parser.add_argument("--labels", default="data/processed/prod_labels.json")
     parser.add_argument("--num-requests", type=int, default=None)
-    parser.add_argument("--device", default="cpu")
-    parser.add_argument("--local-data", action="store_true")
+    parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
+
+    if not os.path.exists(args.labels):
+        print(f"ERROR: {args.labels} not found. Run generate_prod_labels.py first.")
+        sys.exit(1)
 
     with open(args.config) as f:
         cfg = yaml.safe_load(f)
 
-    num_req = args.num_requests or cfg["simulation"]["num_requests"]
-    records = load_alpaca_prompts(split="train", limit=num_req, use_local=args.local_data)
+    num_req = args.num_requests or cfg["datasets"].get("eval_limit", 200)
+    records = load_prod_labels(args.labels).records[:num_req]
 
-    # Mix in some priority prompts for demo
     for i, rec in enumerate(records):
         if i % 10 == 0:
             rec.priority = "high"
@@ -59,32 +69,44 @@ def main():
             rec.priority = "low"
 
     ranker = None
-    if args.checkpoint and os.path.exists(args.checkpoint):
-        print(f"Loading ranker from {args.checkpoint}")
+    if os.path.exists(args.checkpoint):
+        print(f"Loading PARS from {args.checkpoint}")
         ranker = load_model(args.checkpoint, device=args.device)
 
+    prod_m = None
+    hidden = None
+    if os.path.exists(args.prod_m):
+        print(f"Loading ProD-M from {args.prod_m}")
+        prod_m = load_prod_m(args.prod_m, device=args.device)
+        hidden_path = load_prod_labels(args.labels).meta.get("hidden_states_path")
+        if hidden_path and os.path.exists(hidden_path):
+            hidden = load_hidden_states(hidden_path)[:num_req]
+        else:
+            print("WARNING: hidden states not cached — ProD-M eval may be inaccurate")
+
+    boosts = priority_map(cfg)
     base_config = SimConfig(
         policy=cfg["scheduler"]["policy"],
         batch_size=cfg["scheduler"]["batch_size"],
         arrival_rate=cfg["simulation"]["arrival_rate"],
         seed=cfg["simulation"]["seed"],
-        priority_boosts=cfg["priority"],
+        priority_boosts=boosts,
     )
 
     if args.compare_all:
-        policies = ["fcfs", "ltr_pointwise", "pairwise_ltr"]
-        summaries = compare_policies(records, ranker, policies, base_config, device=args.device)
+        policies = ["fcfs", "prod_m", "prod_m_pars"]
+        summaries = compare_policies(
+            records, ranker, policies, base_config,
+            prod_m=prod_m, hidden_states=hidden, device=args.device,
+        )
         for s in summaries:
             print_summary(s)
 
-        # Ranking quality check
         if ranker:
             lengths = [r.output_length for r in records]
-            true_order = sorted(lengths)
             scores = ranker.score_prompts([r.text for r in records])
             pred_order = [lengths[i] for i in sorted(range(len(scores)), key=lambda k: scores[k])]
-            tau = kendall_tau(pred_order, true_order)
-            print(f"\nKendall Tau (ranking quality): {tau:.3f}")
+            print(f"\nPARS Kendall Tau: {kendall_tau(pred_order, sorted(lengths)):.3f}")
         return
 
     policy = args.policy or cfg["scheduler"]["policy"]
@@ -93,10 +115,17 @@ def main():
         batch_size=base_config.batch_size,
         arrival_rate=base_config.arrival_rate,
         seed=base_config.seed,
-        priority_boosts=base_config.priority_boosts,
+        priority_boosts=boosts,
     )
-
-    _, summary = run_simulation(records, config, ranker=ranker, device=args.device)
+    use_pars = policy in ("prod_m_pars", "pairwise_ltr", "pars")
+    use_prod = policy in ("prod_m", "ltr_pointwise")
+    _, summary = run_simulation(
+        records, config,
+        ranker=ranker if use_pars else None,
+        prod_m=prod_m if use_prod else None,
+        hidden_states=hidden if use_prod else None,
+        device=args.device,
+    )
     print_summary(summary)
 
 

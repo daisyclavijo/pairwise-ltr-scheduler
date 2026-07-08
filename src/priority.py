@@ -25,10 +25,12 @@ class InferenceRequest:
 
     request_id: str
     prompt: str
-    output_length: int          # ground truth for simulation
+    output_length: int          # ground truth for simulation / eval
     priority: PriorityLevel = PriorityLevel.NORMAL
     arrival_time: float = field(default_factory=time.time)
-    rank_score: float = 0.0     # filled by predictor (higher = longer job)
+    rank_score: float = 0.0     # filled by ProD-M or PARS (higher = longer job)
+    predicted_length: int = 0   # ProD-M pointwise estimate
+    metadata: dict = field(default_factory=dict)
 
     def effective_score(self, boosts: dict[str, float]) -> float:
         """

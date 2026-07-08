@@ -103,12 +103,8 @@ class PairwiseLTRScheduler(BaseScheduler):
         return batch
 
 
-class PointwiseLTRScheduler(BaseScheduler):
-    """
-    Baseline from the main paper: sort by predicted absolute length.
-
-    Same queue logic as pairwise, but meant for pointwise predictors.
-    """
+class ProDMScheduler(BaseScheduler):
+    """Pointwise scheduler using ProD-M length predictions + priority."""
 
     def __init__(
         self,
@@ -124,17 +120,28 @@ class PointwiseLTRScheduler(BaseScheduler):
         }
 
     def pick_next_batch(self, now: float | None = None) -> list[InferenceRequest]:
-        # Same serving policy; only training differs
-        scheduler = PairwiseLTRScheduler(
-            self.batch_size,
-            self.starvation_seconds,
-            self.priority_boosts,
-        )
-        scheduler.waiting = self.waiting
-        batch = scheduler.pick_next_batch(now)
-        self.waiting = scheduler.waiting
+        now = now or time.time()
+        self._apply_starvation(now, self.priority_boosts)
+
+        heap: list[QueueItem] = []
+        for req in self.waiting:
+            key = req.effective_score(self.priority_boosts)
+            heapq.heappush(heap, QueueItem(sort_key=key, request=req))
+
+        batch = []
+        for _ in range(min(self.batch_size, len(heap))):
+            batch.append(heapq.heappop(heap).request)
+
+        picked_ids = {r.request_id for r in batch}
+        self.waiting = [r for r in self.waiting if r.request_id not in picked_ids]
         self.running.extend(batch)
         return batch
+
+
+class ProdMPARSScheduler(PairwiseLTRScheduler):
+    """Full pipeline: PARS ranking + user priority + starvation prevention."""
+
+    pass
 
 
 def make_scheduler(policy: str, **kwargs) -> BaseScheduler:
@@ -143,8 +150,8 @@ def make_scheduler(policy: str, **kwargs) -> BaseScheduler:
     if policy == "fcfs":
         kwargs.pop("priority_boosts", None)
         return FCFSScheduler(**kwargs)
-    if policy == "ltr_pointwise":
-        return PointwiseLTRScheduler(**kwargs)
-    if policy == "pairwise_ltr":
-        return PairwiseLTRScheduler(**kwargs)
+    if policy in ("ltr_pointwise", "prod_m"):
+        return ProDMScheduler(**kwargs)
+    if policy in ("pairwise_ltr", "prod_m_pars", "pars"):
+        return ProdMPARSScheduler(**kwargs)
     raise ValueError(f"Unknown policy: {policy}")
