@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Step 4: evaluate prediction quality + scheduler latency.
+Step 4: compare schedulers the way our proposal describes.
 
-Baselines (from midterm slides):
-  - FCFS
-  - ProD-M pointwise SJF  (original LTR-style length prediction)
-  - PARS pairwise SJF     (our proposal extension)
-  - Oracle SJF            (true median length — upper bound)
+  FCFS  - baseline (what production usually does)
+  LTR   - main-paper style pointwise length ranking (our ProD-M predictor)
+  PARS  - OUR improvement: pairwise ranking + priority + starvation
+  Oracle - perfect SJF upper bound (true median lengths)
 
-Also reports MAE, Kendall Tau, pairwise accuracy, NDCG, and approx TTFT.
+Also prints prediction quality (MAE, Kendall Tau, etc.).
 """
 
 from __future__ import annotations
@@ -26,9 +25,19 @@ from src.ranker import load_ranker
 from src.simulate import SimConfig, compare
 from src.utils import load_config
 
+# Pretty names for the report / viva
+POLICY_TITLE = {
+    "fcfs": "FCFS (baseline)",
+    "ltr": "LTR pointwise (main-paper style, ProD-M lengths)",
+    "pars": "PARS pairwise (ours: ranking + priority)",
+    "oracle": "Oracle SJF (true median length, upper bound)",
+}
+
 
 def print_summary(s):
-    print(f"\n=== {s.policy.upper()} ===")
+    title = POLICY_TITLE.get(s.policy, s.policy.upper())
+    print(f"\n=== {title} ===")
+    print(f"  policy id:   {s.policy}")
     print(f"  requests:    {s.num_requests}")
     print(f"  avg latency: {s.avg_latency:.3f}s")
     print(f"  p50:         {s.p50_latency:.3f}s")
@@ -58,12 +67,19 @@ def main():
     limit = args.limit or cfg["datasets"].get("eval_limit", len(records))
     records = records[:limit]
 
-    # assign a few high/low priorities so the priority boost path is exercised
+    # User / request priority (high / normal / low) — part of our serving design
+    n_high = n_low = 0
     for i, rec in enumerate(records):
         if i % 8 == 0:
             rec.priority = "high"
+            n_high += 1
         elif i % 5 == 0:
             rec.priority = "low"
+            n_low += 1
+    print(
+        f"Priority mix: high={n_high}, low={n_low}, "
+        f"normal={len(records) - n_high - n_low}"
+    )
 
     prod_m = load_prod_m(args.prod_m, device=args.device) if os.path.exists(args.prod_m) else None
     ranker = load_ranker(args.ranker, device=args.device) if os.path.exists(args.ranker) else None
@@ -73,18 +89,18 @@ def main():
     if os.path.exists(hidden_path):
         hidden = load_hidden(hidden_path)[: len(records)]
 
-    print("--- Prediction quality ---")
+    print("\n--- 1) Length / ranking quality ---")
+    print("Median labels = ProD-M supervision (improvement over single-sample labels)")
     if prod_m is not None and hidden is not None:
         preds = prod_m.predict_lengths(hidden.to(args.device))
         true = [r.output_length for r in records]
-        print(f"ProD-M MAE vs median: {mae(true, preds):.2f} tokens")
+        print(f"ProD-M MAE vs median target: {mae(true, preds):.2f} tokens")
     else:
         print("ProD-M checkpoint / hidden states missing — skip MAE")
 
     if ranker is not None:
         lengths = [r.output_length for r in records]
         scores = ranker.score([r.text for r in records])
-        # lower score first ~= shorter job first; compare that order to sorted lengths
         order = [lengths[i] for i in sorted(range(len(scores)), key=lambda k: scores[k])]
         print(f"PARS Kendall Tau:       {kendall_tau(order, sorted(lengths)):.3f}")
         print(f"PARS Pairwise Accuracy: {pairwise_accuracy(scores, lengths):.3f}")
@@ -104,10 +120,15 @@ def main():
         boosts=boosts,
     )
 
-    print("\n--- Scheduler comparison ---")
+    print("\n--- 2) Scheduler comparison (proposal evaluation plan) ---")
+    print("FCFS  = baseline")
+    print("LTR   = main-paper style pointwise length ranking (ProD-M)")
+    print("PARS  = our pairwise improvement (+ priority / starvation)")
+    print("Oracle = upper bound with true medians")
+
     summaries = compare(
         records,
-        ["fcfs", "prod_m", "pars", "oracle"],
+        ["fcfs", "ltr", "pars", "oracle"],
         sim_cfg,
         ranker=ranker,
         prod_m=prod_m,
@@ -117,11 +138,16 @@ def main():
     for s in summaries:
         print_summary(s)
 
-    # quick relative improvement note for the report
     by_name = {s.policy: s for s in summaries}
+    if "fcfs" in by_name and "ltr" in by_name and by_name["fcfs"].p95_latency > 0:
+        g = (by_name["fcfs"].p95_latency - by_name["ltr"].p95_latency) / by_name["fcfs"].p95_latency
+        print(f"\nLTR vs FCFS  p95 improvement: {100 * g:.1f}%")
+    if "ltr" in by_name and "pars" in by_name and by_name["ltr"].p95_latency > 0:
+        g = (by_name["ltr"].p95_latency - by_name["pars"].p95_latency) / by_name["ltr"].p95_latency
+        print(f"PARS vs LTR  p95 improvement: {100 * g:.1f}%  (our gain over main-paper style)")
     if "fcfs" in by_name and "pars" in by_name and by_name["fcfs"].p95_latency > 0:
-        gain = (by_name["fcfs"].p95_latency - by_name["pars"].p95_latency) / by_name["fcfs"].p95_latency
-        print(f"\nPARS vs FCFS p95 improvement: {100 * gain:.1f}%")
+        g = (by_name["fcfs"].p95_latency - by_name["pars"].p95_latency) / by_name["fcfs"].p95_latency
+        print(f"PARS vs FCFS p95 improvement: {100 * g:.1f}%")
 
 
 if __name__ == "__main__":

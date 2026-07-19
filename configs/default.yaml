@@ -1,4 +1,5 @@
-# Capstone config — ProD-M + Pairwise LTR scheduler
+# Capstone config
+# FCFS vs LTR (main-paper style / ProD-M) vs PARS (ours) vs Oracle
 
 model:
   backbone: bert-base-uncased
@@ -55,11 +56,14 @@ datasets:
   eval_limit: 100
 
 scheduler:
+  # default serving policy for demos: our PARS method
+  # options: fcfs | ltr | pars | oracle
   policy: pars
   batch_size: 8
-  starvation_seconds: 120
+  starvation_seconds: 120   # promote waiting requests (fairness)
 
 priority:
+  # added to rank score; lower effective score is served sooner
   high_boost: -3.0
   normal_boost: 0.0
   low_boost: 3.0

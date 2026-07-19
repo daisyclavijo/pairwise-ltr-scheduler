@@ -1,9 +1,11 @@
 """
-Simple discrete-event simulator.
+Discrete-event simulator for comparing scheduling policies.
 
-We don't need a real GPU here — each token just costs a fixed amount
-of simulated time. That's enough to show HOL blocking under FCFS vs
-length-aware scheduling.
+Policies:
+  fcfs   - arrival order
+  ltr    - main-paper style pointwise LTR (ProD-M predicted lengths)
+  pars   - our pairwise ranker + priority
+  oracle - true median lengths (upper bound)
 """
 
 from __future__ import annotations
@@ -32,7 +34,17 @@ def _service_time(req):
     return PREFILL + req.output_length * PER_TOKEN
 
 
+def _normalize_policy(policy):
+    if policy == "prod_m":
+        return "ltr"
+    if policy in ("pairwise_ltr", "prod_m_pars"):
+        return "pars"
+    return policy
+
+
 def _score_requests(records, policy="fcfs", ranker=None, prod_m=None, hidden=None, device="cpu"):
+    """Fill rank_score used by the length-aware scheduler."""
+    policy = _normalize_policy(policy)
     reqs = []
     for rec in records:
         reqs.append(
@@ -44,32 +56,36 @@ def _score_requests(records, policy="fcfs", ranker=None, prod_m=None, hidden=Non
             )
         )
 
-    # oracle SJF: cheat with the true median length (upper bound)
+    # Oracle: use true median length (best possible SJF)
     if policy == "oracle":
         for req in reqs:
             req.rank_score = float(req.output_length)
             req.predicted_length = req.output_length
         return reqs
 
-    if ranker is not None:
-        ranker.to(device)
-        scores = ranker.score([r.prompt for r in reqs])
-        for req, s in zip(reqs, scores):
-            req.rank_score = float(s)
-
-    if prod_m is not None and hidden is not None:
+    # Main-paper style LTR: pointwise predicted length from ProD-M
+    if policy == "ltr" and prod_m is not None and hidden is not None:
         prod_m.to(device)
         lengths = prod_m.predict_lengths(hidden.to(device))
         for req, length in zip(reqs, lengths):
             req.rank_score = float(length)
             req.predicted_length = int(round(length))
+        return reqs
+
+    # Our method: pairwise ranker score (higher => longer expected output)
+    if policy == "pars" and ranker is not None:
+        ranker.to(device)
+        scores = ranker.score([r.prompt for r in reqs])
+        for req, s in zip(reqs, scores):
+            req.rank_score = float(s)
+        return reqs
 
     return reqs
 
 
 def run_sim(records, config, ranker=None, prod_m=None, hidden=None, device="cpu"):
-    # oracle / prod_m / pars all use the length-aware heap; only fcfs is different
-    sched_policy = "fcfs" if config.policy == "fcfs" else "pars"
+    policy = _normalize_policy(config.policy)
+    sched_policy = "fcfs" if policy == "fcfs" else "ltr"  # any non-fcfs uses score heap
     sched = Scheduler(
         policy=sched_policy,
         batch_size=config.batch_size,
@@ -78,7 +94,7 @@ def run_sim(records, config, ranker=None, prod_m=None, hidden=None, device="cpu"
 
     all_reqs = _score_requests(
         records,
-        policy=config.policy,
+        policy=policy,
         ranker=ranker,
         prod_m=prod_m,
         hidden=hidden,
@@ -89,11 +105,10 @@ def run_sim(records, config, ranker=None, prod_m=None, hidden=None, device="cpu"
     arrivals = list(poisson_arrivals(records, config.arrival_rate, config.seed))
     idx = 0
     clock = 0.0
-    active = []  # (finish_time, request)
+    active = []
     done = []
 
     while idx < len(arrivals) or active or sched.waiting:
-        # admit arrivals
         while idx < len(arrivals) and arrivals[idx][0] <= clock:
             t, rec = arrivals[idx]
             req = by_id[rec.prompt_id]
@@ -101,7 +116,6 @@ def run_sim(records, config, ranker=None, prod_m=None, hidden=None, device="cpu"
             sched.add(req)
             idx += 1
 
-        # finish completed jobs
         still = []
         for finish, req in active:
             if finish <= clock:
@@ -120,7 +134,6 @@ def run_sim(records, config, ranker=None, prod_m=None, hidden=None, device="cpu"
                 still.append((finish, req))
         active = still
 
-        # start new work if we have free slots
         free = config.batch_size - len(active)
         if free > 0 and sched.waiting:
             for req in sched.next_batch(now=clock, n=free):
@@ -133,12 +146,13 @@ def run_sim(records, config, ranker=None, prod_m=None, hidden=None, device="cpu"
             break
         clock = nxt
 
-    return summarize(config.policy, done, clock)
+    return summarize(policy, done, clock)
 
 
 def compare(records, policies, config, ranker=None, prod_m=None, hidden=None, device="cpu"):
     results = []
     for policy in policies:
+        policy = _normalize_policy(policy)
         cfg = SimConfig(
             policy=policy,
             batch_size=config.batch_size,
@@ -146,16 +160,15 @@ def compare(records, policies, config, ranker=None, prod_m=None, hidden=None, de
             seed=config.seed,
             boosts=config.boosts,
         )
-        use_pars = policy in ("pars", "prod_m_pars", "pairwise_ltr")
-        use_prod = policy in ("prod_m", "ltr")
-        # oracle / fcfs don't need a trained model
+        use_pars = policy == "pars"
+        use_ltr = policy == "ltr"
         results.append(
             run_sim(
                 records,
                 cfg,
                 ranker=ranker if use_pars else None,
-                prod_m=prod_m if use_prod else None,
-                hidden=hidden if use_prod else None,
+                prod_m=prod_m if use_ltr else None,
+                hidden=hidden if use_ltr else None,
                 device=device,
             )
         )

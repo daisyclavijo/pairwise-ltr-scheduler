@@ -2,10 +2,10 @@
 """
 Run the full project pipeline end-to-end.
 
-  1) generate median labels with Llama
-  2) train ProD-M
-  3) train pairwise ranker
-  4) compare FCFS / ProD-M / PARS / Oracle
+  1) median labels (ProD-M supervision)
+  2) train ProD-M length model  -> used by LTR (main-paper style) policy
+  3) train PARS pairwise ranker -> our improvement
+  4) compare FCFS vs LTR vs PARS vs Oracle
 
 After this finishes, for the report also run:
   python scripts/eval_ood.py --device cuda

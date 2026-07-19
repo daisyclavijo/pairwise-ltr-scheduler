@@ -1,90 +1,74 @@
-# Project Overview (for final report / demo)
+# Project Overview (final report / viva)
 
-This note is written the way we would explain the project in a viva or final paper.
-It matches the submitted proposal and midterm slides.
+## Story we are telling
 
-## 1. Motivation
+Production LLM servers often use **FCFS**. Long answers block short ones
+(**HOL blocking**). The **main paper** shows that a **Learning-to-Rank (LTR)**
+scheduler can approximate Shortest-Job-First and cut latency.
 
-Serving LLMs is expensive and latency-sensitive. Generation is autoregressive, so
-runtime scales with the number of output tokens. Production stacks often use
-**FCFS**. When a long request sits at the head of the queue, short requests wait
-behind it — classic **HOL blocking**.
+**Our contribution:** improve that LTR pipeline with:
 
-**SJF** would reduce average wait, but we do not know the output length in advance.
-Recent work replaces exact length knowledge with **learning-to-rank**: if we can
-order requests from short to long well enough, we can approximate SJF.
+1. **Median length labels (ProD-M)** — sample the LLM `r` times per prompt;
+   use the median instead of one noisy sample.
+2. **Pairwise ranking (PARS)** — learn which prompt is longer than which,
+   instead of only predicting an absolute length.
+3. **Priority + starvation prevention** — high/normal/low user priority;
+   boost requests that wait too long (~2 minutes).
 
-## 2. Related work we build on
+Then we **compare**:
 
-- **Main paper (LTR + vLLM):** rank requests, then serve shorter ones earlier.
-- **Fu et al.:** ranking quality (e.g. Kendall Tau) is enough for scheduling gains.
-- **ProD / ProD-M:** output length is heavy-tailed; train on the **median of r samples**
-  and use the served LLM's **hidden states** + a small MLP.
-- **PARS:** train a **pairwise** BERT ranker with margin loss; add **starvation prevention**.
-- **vLLM:** real engine with paged KV cache; stretch goal for end-to-end serving.
+| Policy | Role |
+|--------|------|
+| FCFS | Baseline |
+| LTR (pointwise) | Main-paper style, using our ProD-M length predictor |
+| PARS (pairwise) | **Our improved scheduler** |
+| Oracle | Upper bound (true median lengths) |
 
-## 3. Our pipeline
+We are **not** claiming to reload the main paper’s exact OPT-125M checkpoint.
+We re-implement the **same scheduling idea** (pointwise length → SJF) and show
+that our median + pairwise + priority stack improves on it under the same
+simulator.
+
+## Pipeline
 
 ```
-Datasets (mixed short/long prompts)
+Prompts (GSM8K / MATH / code / chat / longbench)
         |
         v
-Llama x r samples / prompt  ----> median length label   (Phase 1)
+Llama x r=5  --> median length + hidden state     [ProD-M labels]
         |
-        +----> last-token hidden state
+        +--> ProD-M MLP --> predicted length      [LTR policy]
         |
-        v
-ProD-M MLP (length bins)  ----> pointwise SJF baseline  (Phase 2)
-        |
-        v
-Build pairs from medians (filter small gaps)
+        +--> pairs from medians --> BERT ranker   [PARS policy]
         |
         v
-PARS BERT ranker (margin loss) ----> pairwise SJF       (Phase 3)
+Priority-aware SJF scheduler (+ starvation)
         |
         v
-Simulator: FCFS vs ProD-M vs PARS vs Oracle             (Phase 4)
-        |
-        v
-(optional) vLLM priority scheduling                     (Stretch)
+Compare FCFS | LTR | PARS | Oracle
 ```
 
-The novel link from our midterm: **median labels feed the pairwise ranker**,
-so robust supervision and fair ranking are connected.
+## Code map
 
-## 4. What each module does
+| Piece | File |
+|-------|------|
+| Median labels | `scripts/generate_labels.py`, `src/llama.py` |
+| ProD-M / LTR scores | `scripts/train_prod_m.py`, `src/prod_m.py` |
+| PARS ranker | `scripts/train_ranker.py`, `src/ranker.py` |
+| Priority + starvation | `src/requests.py`, `src/scheduler.py` |
+| Comparison | `scripts/evaluate.py`, `src/simulate.py` |
+| ID/OOD + ablation | `scripts/eval_ood.py`, `scripts/ablation_labels.py` |
+| vLLM stretch | `scripts/vllm_integration.py` |
 
-| File | Role |
-|------|------|
-| `src/llama.py` | Load Llama (4-bit on Colab), sample lengths, extract hidden states |
-| `src/prod_m.py` | 2-layer MLP over length bins; save/load checkpoint |
-| `src/ranker.py` | BERT encoder + linear score; margin ranking loss |
-| `src/scheduler.py` | Waiting queue; FCFS or score-sorted batching; starvation bump |
-| `src/simulate.py` | Discrete-event sim with Poisson arrivals |
-| `src/datasets.py` | GSM8K, MATH, LiveCodeBench, WildChat, LongBench-v2 |
-| `scripts/eval_ood.py` | Train on math-like data, test on chat/code/long (ID/OOD) |
-| `scripts/ablation_labels.py` | Median labels vs single-sample labels |
-| `scripts/vllm_integration.py` | Map PARS scores → vLLM `priority=` |
+## Metrics for the report
 
-## 5. Metrics we report
-
-**Prediction / ranking**
-- MAE of ProD-M vs median target
-- Kendall Tau, pairwise accuracy, NDCG of PARS
-- ID vs OOD MAE / Tau gap
-
-**Serving (simulator)**
-- Average, p50, p95, p99 latency
-- Average queue wait
-- Approximate TTFT (= wait + prefill)
+- ProD-M MAE vs median target
+- PARS Kendall Tau / pairwise accuracy / NDCG
+- Latency: avg, p50, p95, p99; queue wait; approx TTFT
 - Throughput (req/s)
+- Relative gains: LTR vs FCFS, **PARS vs LTR**, PARS vs FCFS
 
-**Serving (vLLM stretch)**
-- Wall-clock time, req/s, optional GPU/KV/preemption stats
-
-## 6. How to reproduce results for submission
-
-### Minimum (T4 Colab, ~1–3 hours for limit=50–100)
+## How to reproduce
 
 ```bash
 export HF_TOKEN=hf_...
@@ -93,41 +77,11 @@ python scripts/eval_ood.py --device cuda
 python scripts/ablation_labels.py --device cuda --epochs 3
 ```
 
-Copy the printed tables into the report.
+Colab T4, `--limit 100`: roughly **2.5–4.5 hours**.
 
-### Stronger (A100 / L4, matches slide model)
+## Honest scope
 
-```bash
-python scripts/run_all.py --config configs/full_run.yaml --device cuda
-```
-
-### Stretch
-
-```bash
-pip install vllm
-python scripts/vllm_integration.py --limit 50 --device cuda
-```
-
-## 7. Expected story in the results
-
-1. ProD-M MAE should be reasonable vs the median target (not perfect — bins + small data).
-2. PARS Kendall Tau / pairwise accuracy should be clearly above random (0.0).
-3. In the simulator, **Oracle ≤ PARS ≈ ProD-M < FCFS** on p95 / avg wait when
-   the workload is skewed (mixed short and long outputs).
-4. Ablation: median supervision should beat or match single-sample labels.
-5. OOD: some degradation is expected; we discuss the gap honestly.
-
-## 8. Honest scope notes (good for viva)
-
-- Full production vLLM latency study (TTFT/TBT under high QPS with preemption
-  traces) is the **stretch** goal — same as midterm slide 7.
-- The discrete-event simulator uses a simple cost model
-  (`prefill + tokens * decode_time`). It is enough to show HOL effects and
-  compare policies fairly under the same assumptions.
-- Default Colab model is **Llama-3.2-3B-Instruct** for VRAM. The slides mention
-  Llama-3.1-8B; that is available via `configs/full_run.yaml`.
-
-## 9. Team contribution tip
-
-When writing the report, split work by phase (data, ProD-M, PARS, evaluation,
-docs/demo). The code is intentionally organized that way.
+- Simulator uses `prefill + tokens * decode_time` — fair for policy ranking,
+  not a full GPU trace.
+- Default model: Llama-3.2-3B (Colab). Llama-3.1-8B via `configs/full_run.yaml`.
+- Full high-QPS vLLM study is the stretch goal (midterm slide 7).
