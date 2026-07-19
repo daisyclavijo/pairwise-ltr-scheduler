@@ -42,6 +42,22 @@ def main():
     parser.add_argument("--labels", default="data/processed/prod_labels.json")
     parser.add_argument("--ltr", default="checkpoints/ltr_pointwise.pt")
     parser.add_argument("--ranker", default="checkpoints/pairwise_ranker.pt")
+    parser.add_argument(
+        "--chunk-size",
+        type=int,
+        default=25,
+        help="save label progress every N prompts (default 25)",
+    )
+    parser.add_argument(
+        "--backup-dir",
+        default="",
+        help="copy labels/hidden here after each chunk (e.g. Drive path)",
+    )
+    parser.add_argument(
+        "--labels-only",
+        action="store_true",
+        help="only run chunked label generation (then train later)",
+    )
     args = parser.parse_args()
 
     if not get_hf_token() and not args.skip_train:
@@ -56,20 +72,32 @@ def main():
     print(f"Using {llm['profile']} -> {llm['model']}")
     print(f"Dataset={dataset}, limit={limit}, device={args.device}")
     print("Compare: FCFS | LTR (main paper) | PARS+ProD-M+Priority (ours)")
+    if not args.skip_train:
+        print(f"Label checkpoints: every {args.chunk_size} prompts (--resume safe)")
 
     py = sys.executable
 
     if not args.skip_train:
-        # ProD-M labeling step (medians) — used by OURS, not a separate scheduler
-        run([
+        label_cmd = [
             py, "scripts/generate_labels.py",
             "--dataset", dataset,
             "--limit", str(limit),
             "--output", args.labels,
             "--device", args.device,
             "--llm-profile", llm["profile"],
-        ])
-        # Main-paper LTR
+            "--chunk-size", str(args.chunk_size),
+            "--resume",
+        ]
+        if args.backup_dir:
+            label_cmd += ["--backup-dir", args.backup_dir]
+        run(label_cmd)
+
+        if args.labels_only:
+            print("\nLabels done. Next:")
+            print("  python scripts/run_all.py --skip-train --device cuda")
+            print("or train manually, then evaluate.")
+            return
+
         run([
             py, "scripts/train_prod_m.py",
             "--labels", args.labels,
@@ -77,7 +105,6 @@ def main():
             "--output", args.ltr,
             "--device", args.device,
         ])
-        # Ours: PARS trained on ProD-M median pairs
         run([
             py, "scripts/train_ranker.py",
             "--labels", args.labels,
