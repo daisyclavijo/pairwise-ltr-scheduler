@@ -101,9 +101,14 @@ def main():
     try:
         from vllm import SamplingParams
     except ImportError:
-        print("ERROR: vLLM is not installed.")
-        print("  pip install vllm")
-        print("Needs a real NVIDIA GPU (Colab T4/A100 or cloud).")
+        print("ERROR: vLLM is not installed / not importable in this runtime.")
+        print("Colab fix (dependency warnings about numba/cuml are usually harmless):")
+        print("  1) Runtime → Change runtime type → GPU")
+        print("  2) !python scripts/ensure_vllm.py --install")
+        print("  3) If still failing: Runtime → Restart session, restore from Drive,")
+        print("     re-run ensure_vllm.py --install, then this script again")
+        print("Simulator fallback (not live engine):")
+        print("  python scripts/evaluate.py --limit 1000 --device cuda")
         sys.exit(1)
 
     if not os.path.exists(args.labels):
