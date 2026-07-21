@@ -25,7 +25,7 @@ from google.colab import drive
 os.environ["HF_TOKEN"] = "hf_YOUR_TOKEN"
 drive.mount("/content/drive")
 
-!git clone -b anmolsaluja/live-vllm-high-prompt-eval https://github.com/anmolsaluja/pairwise-ltr-scheduler.git
+!git clone https://github.com/anmolsaluja/pairwise-ltr-scheduler.git
 %cd pairwise-ltr-scheduler
 !pip install -q -r requirements.txt
 !python scripts/check_setup.py
