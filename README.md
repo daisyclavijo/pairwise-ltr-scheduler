@@ -1,4 +1,4 @@
-# Improving Main-Paper LTR with PARS + ProD-M + Priority
+# Improving LTR with PARS + ProD-M + Priority
 
 **FDU Vancouver Capstone (CS Master's)**
 
