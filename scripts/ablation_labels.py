@@ -78,7 +78,7 @@ def eval_ranker(model, records):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/live_run.yaml")
     parser.add_argument("--labels", default="data/processed/prod_labels.json")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--epochs", type=int, default=3)

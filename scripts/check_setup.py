@@ -59,7 +59,7 @@ def main():
         ok = False
 
     if ok:
-        print("\nReady. Next: chunked labels or run_all.py")
+        print("\nReady. Next: label 1000 prompts (chunked) or scripts/run_live.py")
     else:
         print("\nFix the failures above first.")
         sys.exit(1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run the full pipeline on a cloud GPU (Colab / RunPod / etc.)
+# Run the full 1000-prompt pipeline on a cloud GPU (Colab / RunPod / etc.)
 #
 #   export HF_TOKEN=hf_...
 #   bash cloud/run_on_cloud.sh
@@ -13,4 +13,9 @@ fi
 
 pip install -q -r requirements.txt
 python scripts/check_setup.py
-python scripts/run_all.py --llm-profile llama32 --limit 100 --device cuda
+python scripts/run_all.py \
+  --config configs/live_run.yaml \
+  --llm-profile llama32 \
+  --limit 1000 \
+  --chunk-size 50 \
+  --device cuda

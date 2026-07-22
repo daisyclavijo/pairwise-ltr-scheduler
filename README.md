@@ -52,10 +52,6 @@ Accept license: https://huggingface.co/meta-llama/Llama-3.2-3B-Instruct
 
 **Time (A100):** labeling is still the long step (multi-session OK with `--resume`); train/eval/plots are much faster.
 
-### Optional quick smoke test (100 prompts)
-
-`configs/default.yaml` still supports a small 100-prompt demo (`--limit 100 --chunk-size 25`) if you only need a pipeline check.
-
 ## Final printed result looks like
 
 ```text

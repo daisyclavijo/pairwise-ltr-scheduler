@@ -11,7 +11,7 @@ Steps:
   4) evaluate the three schedulers
 
 Example:
-  python scripts/run_all.py --limit 100 --device cuda
+  python scripts/run_all.py --config configs/live_run.yaml --limit 1000 --device cuda
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def run(cmd):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/live_run.yaml")
     parser.add_argument("--dataset", default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cuda")
@@ -45,8 +45,8 @@ def main():
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=25,
-        help="save label progress every N prompts (default 25)",
+        default=50,
+        help="save label progress every N prompts (default 50 for 1000-prompt runs)",
     )
     parser.add_argument(
         "--backup-dir",
@@ -94,12 +94,13 @@ def main():
 
         if args.labels_only:
             print("\nLabels done. Next:")
-            print("  python scripts/run_all.py --skip-train --device cuda")
-            print("or train manually, then evaluate.")
+            print("  python scripts/run_all.py --config configs/live_run.yaml --skip-train --limit 1000 --device cuda")
+            print("or train manually, then evaluate / plot_results.")
             return
 
         run([
             py, "scripts/train_prod_m.py",
+            "--config", args.config,
             "--labels", args.labels,
             "--target", "single",
             "--output", args.ltr,
@@ -107,6 +108,7 @@ def main():
         ])
         run([
             py, "scripts/train_ranker.py",
+            "--config", args.config,
             "--labels", args.labels,
             "--train-samples", str(limit),
             "--output", args.ranker,
@@ -115,6 +117,7 @@ def main():
 
     run([
         py, "scripts/evaluate.py",
+        "--config", args.config,
         "--labels", args.labels,
         "--ltr", args.ltr,
         "--ranker", args.ranker,

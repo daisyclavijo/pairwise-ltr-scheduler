@@ -4,8 +4,9 @@ Step 1: generate ProD-M labels with the real LLM.
 
 Supports checkpointed runs so Colab disconnects don't wipe progress:
 
-  # 100 prompts in 4 saves of 25
-  python scripts/generate_labels.py --limit 100 --chunk-size 25 --resume --device cuda
+  # 1000 prompts in saves of 50
+  python scripts/generate_labels.py --config configs/live_run.yaml \\
+      --limit 1000 --chunk-size 50 --resume --num-samples 3 --device cuda
 
 After each chunk we rewrite:
   data/processed/prod_labels.json
@@ -46,7 +47,7 @@ def backup(paths, backup_dir):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/live_run.yaml")
     parser.add_argument("--dataset", default=None)
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--device", default="cuda")
@@ -56,8 +57,8 @@ def main():
     parser.add_argument(
         "--chunk-size",
         type=int,
-        default=25,
-        help="save progress every N prompts (default 25 = 4 checkpoints for limit=100)",
+        default=50,
+        help="save progress every N prompts (default 50 = 20 checkpoints for limit=1000)",
     )
     parser.add_argument(
         "--resume",
@@ -73,7 +74,7 @@ def main():
         "--num-samples",
         type=int,
         default=None,
-        help="override prod_m.num_samples (use 3 for faster 1k-scale labeling)",
+        help="override prod_m.num_samples (default from config is 3 at 1000-prompt scale)",
     )
     args = parser.parse_args()
 

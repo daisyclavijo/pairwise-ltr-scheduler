@@ -1,5 +1,8 @@
-# Capstone config
+# Capstone config — primary scale: 1000 prompts
 # Compare: FCFS | LTR (main paper) | PARS+ProD-M+Priority (ours)
+#
+# Prefer configs/live_run.yaml for Colab Pro / A100 (same 1000-prompt scale).
+# Chunked labeling: --limit 1000 --chunk-size 50 --resume
 
 model:
   backbone: bert-base-uncased
@@ -7,7 +10,7 @@ model:
   min_length_diff: 0.2
 
 llm:
-  # llama32 fits Colab T4 with 4-bit quantization
+  # llama32 fits Colab T4/A100 with 4-bit quantization
   profile: llama32
   load_in_4bit: true
   max_prompt_tokens: 4096
@@ -26,37 +29,38 @@ llm:
       max_new_tokens: 2048
 
 prod_m:
-  num_samples: 5
+  # 3 samples/prompt at 1000-prompt scale (use 5 only for tiny debug runs)
+  num_samples: 3
   num_bins: 32
   max_length: 2048
   max_new_tokens: 512
   temperature: 0.7
   top_p: 0.9
-  epochs: 10
-  batch_size: 16
+  epochs: 15
+  batch_size: 32
   learning_rate: 0.001
   encode_batch_size: 4
 
 training:
-  epochs: 5
+  epochs: 8
   batch_size: 16
   learning_rate: 0.00002
   max_prompt_length: 512
-  max_pairs: 5000
+  max_pairs: 50000
 
 datasets:
   name: all
-  limit: 100
+  limit: 1000
   per_dataset:
-    gsm8k: 20
-    math: 20
-    livecodebench: 20
-    wildchat: 20
-    longbench: 20
-  eval_limit: 100
+    gsm8k: 200
+    math: 200
+    livecodebench: 200
+    wildchat: 200
+    longbench: 200
+  eval_limit: 1000
 
 scheduler:
-  # default serving policy for demos: our PARS method
+  # default serving policy: our PARS method
   # options: fcfs | ltr | pars | oracle
   policy: pars
   batch_size: 8
@@ -69,6 +73,6 @@ priority:
   low_boost: 3.0
 
 simulation:
-  num_requests: 100
+  num_requests: 1000
   arrival_rate: 8.0
   seed: 42

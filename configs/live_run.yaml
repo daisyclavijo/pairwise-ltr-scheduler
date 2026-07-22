@@ -1,9 +1,7 @@
-# Live high-prompt run (real vLLM engine + larger labeled set).
+# Primary Colab / report config — 1000 prompts.
+# Matches the main experiment scale used in README and notebooks.
 #
-# Target: ~1000 prompts (closer to paper scale than the 100-prompt Colab demo).
-# Use Llama-3.2-3B on T4; switch profile to llama31 on A100/L4.
-#
-# Pipeline:
+# Usage:
 #   python scripts/generate_labels.py --config configs/live_run.yaml \
 #       --limit 1000 --chunk-size 50 --resume --num-samples 3 --device cuda \
 #       --backup-dir /content/drive/MyDrive/capstone_results
@@ -11,8 +9,12 @@
 #       --target single --output checkpoints/ltr_pointwise.pt --device cuda
 #   python scripts/train_ranker.py --config configs/live_run.yaml \
 #       --train-samples 1000 --device cuda
-#   pip install vllm
-#   python scripts/evaluate_live.py --config configs/live_run.yaml --limit 1000 --device cuda
+#   python scripts/evaluate.py --config configs/live_run.yaml --limit 1000 --device cuda
+#   python scripts/plot_results.py --config configs/live_run.yaml --limit 1000 --device cuda \
+#       --out-dir /content/drive/MyDrive/capstone_results/figures
+#
+# Live GPU (HF fallback if vLLM fails):
+#   python scripts/evaluate_live_hf.py --config configs/live_run.yaml --limit 1000 --device cuda
 
 model:
   backbone: bert-base-uncased
@@ -38,8 +40,7 @@ llm:
       max_new_tokens: 2048
 
 prod_m:
-  # 3 samples/prompt is a good speed/quality tradeoff at 1k scale
-  # (use 5 for the small 100-prompt demo in default.yaml)
+  # 3 samples/prompt is the speed/quality tradeoff at 1000-prompt scale
   num_samples: 3
   num_bins: 32
   max_length: 2048
@@ -85,6 +86,5 @@ simulation:
   seed: 42
 
 live:
-  # used by docs / evaluate_live defaults
   gpu_memory_utilization: 0.85
   max_model_len: 4096

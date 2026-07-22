@@ -110,7 +110,7 @@ def main():
         print("Simulator fallback (not live engine):")
         print("  python scripts/evaluate.py --limit 1000 --device cuda")
         print("Recommended on Colab when vLLM import fails (still LIVE GPU):")
-        print("  python scripts/evaluate_live_hf.py --config configs/live_run.yaml --limit 200 --device cuda")
+        print("  python scripts/evaluate_live_hf.py --config configs/live_run.yaml --limit 1000 --device cuda")
         sys.exit(1)
 
     if not os.path.exists(args.labels):

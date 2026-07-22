@@ -55,7 +55,7 @@ def _pct_gain(base, other):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/live_run.yaml")
     parser.add_argument("--labels", default="data/processed/prod_labels.json")
     parser.add_argument("--ltr", default="checkpoints/ltr_pointwise.pt")
     parser.add_argument("--ranker", default="checkpoints/pairwise_ranker.pt")

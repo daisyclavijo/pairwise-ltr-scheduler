@@ -1,12 +1,11 @@
-# Full-scale run for final report results.
-# Matches the presentation's stated served model (Llama-3.1-8B) and uses
-# a larger, more balanced prompt sample than the quick dev config.
+# Alias of the 1000-prompt primary run (same scale as live_run / default).
+# Kept for older scripts that pass --config configs/full_run.yaml.
 #
 # Usage:
-#   python scripts/run_all.py --config configs/full_run.yaml --device cuda
+#   python scripts/run_all.py --config configs/full_run.yaml --device cuda \
+#       --limit 1000 --chunk-size 50 --backup-dir /content/drive/MyDrive/capstone_results
 #
-# Needs an A100/L4-class GPU (8B model in 4-bit + hidden-state extraction).
-# On a single T4, keep llm.profile: llama32 in configs/default.yaml instead.
+# On T4 use llm.profile: llama32; on A100 you may set profile: llama31.
 
 model:
   backbone: bert-base-uncased
@@ -14,7 +13,7 @@ model:
   min_length_diff: 0.2
 
 llm:
-  profile: llama31
+  profile: llama32
   load_in_4bit: true
   max_prompt_tokens: 4096
   profiles:
@@ -32,14 +31,14 @@ llm:
       max_new_tokens: 2048
 
 prod_m:
-  num_samples: 5
+  num_samples: 3
   num_bins: 32
   max_length: 2048
   max_new_tokens: 512
   temperature: 0.7
   top_p: 0.9
   epochs: 15
-  batch_size: 16
+  batch_size: 32
   learning_rate: 0.001
   encode_batch_size: 4
 
@@ -48,18 +47,18 @@ training:
   batch_size: 16
   learning_rate: 0.00002
   max_prompt_length: 512
-  max_pairs: 20000
+  max_pairs: 50000
 
 datasets:
   name: all
-  limit: 500
+  limit: 1000
   per_dataset:
-    gsm8k: 100
-    math: 100
-    livecodebench: 100
-    wildchat: 100
-    longbench: 100
-  eval_limit: 500
+    gsm8k: 200
+    math: 200
+    livecodebench: 200
+    wildchat: 200
+    longbench: 200
+  eval_limit: 1000
 
 scheduler:
   policy: pars
@@ -72,6 +71,6 @@ priority:
   low_boost: 3.0
 
 simulation:
-  num_requests: 500
+  num_requests: 1000
   arrival_rate: 8.0
   seed: 42

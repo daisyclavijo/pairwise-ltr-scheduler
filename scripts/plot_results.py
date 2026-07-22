@@ -16,7 +16,7 @@ Also prints a markdown-friendly results table to the terminal.
 
 Example (Colab, after labels + checkpoints exist):
   python scripts/plot_results.py --config configs/live_run.yaml \\
-      --limit 100 --device cuda \\
+      --limit 1000 --device cuda \\
       --out-dir /content/drive/MyDrive/capstone_results/figures
 """
 
@@ -26,8 +26,6 @@ import argparse
 import json
 import os
 import sys
-
-import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

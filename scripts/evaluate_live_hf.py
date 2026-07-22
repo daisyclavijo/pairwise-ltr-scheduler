@@ -14,7 +14,7 @@ We report total wall time plus mean / p95 completion time (order matters).
 
 Example (Colab A100, after labels + checkpoints on Drive):
   python scripts/evaluate_live_hf.py --config configs/live_run.yaml \\
-      --limit 200 --batch-size 4 --device cuda
+      --limit 1000 --batch-size 4 --device cuda
 """
 
 from __future__ import annotations

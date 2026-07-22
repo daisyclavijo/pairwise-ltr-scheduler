@@ -37,7 +37,7 @@ def collate(batch):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/live_run.yaml")
     parser.add_argument("--labels", default="data/processed/prod_labels.json")
     parser.add_argument("--output", default="checkpoints/pairwise_ranker.pt")
     parser.add_argument("--device", default="cuda")

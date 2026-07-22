@@ -95,7 +95,7 @@ def train_ranker_on(records, cfg, device):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/default.yaml")
+    parser.add_argument("--config", default="configs/live_run.yaml")
     parser.add_argument("--labels", default="data/processed/prod_labels.json")
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
@@ -114,7 +114,7 @@ def main():
 
     if len(id_recs) < 8 or len(ood_recs) < 8:
         print("Need more mixed-dataset labels for a meaningful ID/OOD split.")
-        print("Re-run: python scripts/generate_labels.py --dataset all --limit 100")
+        print("Re-run: python scripts/generate_labels.py --config configs/live_run.yaml --dataset all --limit 1000")
         sys.exit(1)
 
     hidden_path = meta.get("hidden_states_path", "data/processed/prod_hidden.pt")

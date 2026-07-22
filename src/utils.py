@@ -29,7 +29,7 @@ PROFILES = {
 }
 
 
-def load_config(path="configs/default.yaml"):
+def load_config(path="configs/live_run.yaml"):
     with open(path) as f:
         return yaml.safe_load(f)
 
